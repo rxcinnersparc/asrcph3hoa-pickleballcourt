@@ -1,1 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>ARSC Phase 3 HOA – Pickleball Court Scheduler</title>
+    
+    <!-- Favicon removed - no longer using external image. Using inline emoji-based fallback but clean -->
+    <!-- Removed all imgur.com references completely -->
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #f4f5fb;
+            font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        /* Iframe styles - full viewport, immediate display */
+        #gas-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+            opacity: 1;           /* Instantly visible */
+            transition: none;      /* No fade transitions */
+        }
+        
+        /* Error message overlay (kept for resilience) */
+        .error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            max-width: 90%;
+            width: 320px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            border: 1px solid #f5c2c2;
+            display: none;
+            z-index: 10001;
+            font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        .error-message.show {
+            display: block;
+        }
+        
+        .error-icon {
+            font-size: 56px;
+            margin-bottom: 12px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+        }
+        
+        .error-title {
+            font-size: 1rem;
+            font-weight: 800;
+            color: #c0392b;
+            margin-bottom: 8px;
+        }
+        
+        .error-text {
+            font-size: 0.75rem;
+            color: #7b7fa8;
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+        
+        .error-button {
+            background: #222689;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+        
+        .error-button:hover {
+            background: #1a1d6e;
+        }
+        
+        /* No loading screen styles, mobile adjustments only for error */
+        @media (max-width: 768px) {
+            .error-message {
+                width: 85%;
+                padding: 20px;
+            }
+            .error-text {
+                font-size: 0.7rem;
+            }
+        }
+        
+        /* Simple favicon alternative using emoji data URL (no external image) */
+        link[rel="icon"] {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading screen completely removed - no DOM elements for loading -->
+    
+    <div class="error-message" id="errorMessage">
+        <div class="error-icon">🏓</div>   <!-- Logo replaced with table tennis emoji 🏓 as requested -->
+        <div class="error-title">Connection Error</div>
+        <div class="error-text" id="errorText">
+            Unable to load the application. Please check your internet connection and try again.
+        </div>
+        <button class="error-button" onclick="location.reload()">Retry</button>
+    </div>
+    
+    <iframe id="gas-iframe" src="about:blank" allow="geolocation; clipboard-read; clipboard-write"></iframe>
 
+    <script>
+        // ⚠️ IMPORTANT: Replace this with your actual Google Apps Script Web App URL
+        const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyw4N530mIEfGs8Kl0zA-Iy5yCKdFaFecvqbWJOQhregP7NTMxzvcgNfZlQAVCdGEMduw/exec';
+        
+        const iframe = document.getElementById('gas-iframe');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
+        
+        let hasFailed = false;      // prevent duplicate error displays
+        
+        // Function to show error gracefully (no loading remnants)
+        function showError(message) {
+            if (hasFailed) return;
+            hasFailed = true;
+            
+            // Ensure iframe is hidden for better UX when error occurs
+            iframe.style.display = 'none';
+            
+            errorText.textContent = message || 'Unable to load the application. Please check your internet connection and try again.';
+            errorMessage.classList.add('show');
+        }
+        
+        // Function to handle successful iframe load
+        function onIframeLoad() {
+            if (hasFailed) return;
+            // Ensure iframe is visible and no error overlay
+            iframe.style.display = 'block';
+            iframe.style.opacity = '1';
+            // If error was previously shown (racing condition guard) hide it
+            errorMessage.classList.remove('show');
+        }
+        
+        // Function to handle iframe loading errors (network / CORS / invalid URL)
+        function onIframeError() {
+            if (hasFailed) return;
+            showError('Failed to load the application. The Google Apps Script web app might be unavailable or the URL is incorrect.');
+        }
+        
+        // Build the full URL with preserved query parameters and hash (enhanced compatibility)
+        function buildIframeUrl() {
+            let url = GAS_WEBAPP_URL;
+            
+            // Preserve URL parameters from the wrapper URL
+            const params = new URLSearchParams(window.location.search);
+            const hash = window.location.hash;
+            
+            const queryParts = [];
+            if (params.toString()) {
+                queryParts.push(params.toString());
+            }
+            
+            // Forward hash fragment (some apps need # routing)
+            if (hash && hash.length > 1) {
+                // Option A: pass as hash parameter or forward as part of URL fragment
+                // Some Google Apps Script setups need the hash forward in original form
+                // We encode it as query param 'hash' to preserve routing inside embedded app
+                queryParts.push('hash=' + encodeURIComponent(hash.substring(1)));
+            }
+            
+            if (queryParts.length > 0) {
+                url += '?' + queryParts.join('&');
+            }
+            
+            // Additionally, if the original hash contains route info, attaching as fragment can help SPA routers.
+            // But we pass both query param and native fragment for maximum compatibility.
+            if (hash && hash.length > 1) {
+                // Append real hash AFTER query string (skip if already included, but safe to add)
+                if (!url.includes('#')) {
+                    url += hash;
+                }
+            }
+            
+            return url;
+        }
+        
+        // Directly set iframe source without any loading overlay or delays
+        const iframeUrl = buildIframeUrl();
+        iframe.src = iframeUrl;
+        
+        // Set event listeners for iframe lifecycle
+        iframe.addEventListener('load', onIframeLoad);
+        iframe.addEventListener('error', onIframeError);
+        
+        // Optional: fallback timeout to detect silent failures if load never fires
+        // Some misconfigured scripts might not trigger load/error, show error after reasonable time
+        let timeoutId = setTimeout(() => {
+            // If iframe hasn't signaled load within 12 seconds and no failure recorded,
+            // Check if iframe contentWindow is accessible? Not perfect but better fallback.
+            if (!hasFailed) {
+                // Ensure iframe hasn't loaded (default empty src, but we check current url)
+                const currentSrc = iframe.src;
+                if (currentSrc === 'about:blank' || currentSrc === '' || currentSrc === window.location.href) {
+                    // still seems not loaded, treat as error
+                    showError('Loading timeout. The application is taking too long to respond. Please try again.');
+                } else {
+                    // If src changed but load event might have been missed, we manually treat as loaded
+                    onIframeLoad();
+                }
+            }
+        }, 12000);
+        
+        // Clear timeout once loaded or errored to avoid double error triggers
+        const originalOnLoad = onIframeLoad;
+        const enhancedLoad = function(e) {
+            clearTimeout(timeoutId);
+            originalOnLoad(e);
+        };
+        const originalError = onIframeError;
+        const enhancedError = function(e) {
+            clearTimeout(timeoutId);
+            originalError(e);
+        };
+        
+        // Replace listeners with enhanced versions
+        iframe.removeEventListener('load', onIframeLoad);
+        iframe.removeEventListener('error', onIframeError);
+        iframe.addEventListener('load', enhancedLoad);
+        iframe.addEventListener('error', enhancedError);
+        
+        // Handle postMessage communication from the embedded app (for advance features)
+        window.addEventListener('message', function(event) {
+            // Verify origin for security (recommended to restrict to GAS domain or your deployment)
+            // Allow both script.google.com and possible custom domains if needed.
+            const allowedOrigins = [
+                'https://script.google.com',
+                'https://script.googleusercontent.com',
+                window.location.origin   // allow same origin for dev
+            ];
+            if (!allowedOrigins.some(origin => event.origin === origin)) return;
+            
+            // Handle different message types from your Apps Script app
+            if (event.data && typeof event.data === 'object' && event.data.type) {
+                switch(event.data.type) {
+                    case 'navigate':
+                        // Update browser URL without full reload (for SPA-style navigation)
+                        if (event.data.url && event.data.url !== window.location.pathname + window.location.search) {
+                            history.pushState(null, '', event.data.url);
+                        }
+                        break;
+                    case 'setTitle':
+                        if (event.data.title) {
+                            document.title = event.data.title;
+                        }
+                        break;
+                    case 'ready':
+                        console.log('Apps Script app is ready');
+                        // optional: ensure any lingering error is hidden
+                        errorMessage.classList.remove('show');
+                        break;
+                    default:
+                        // ignore unrecognized types
+                        break;
+                }
+            }
+        });
+        
+        // Handle browser back/forward buttons and notify iframe for deep linking
+        window.addEventListener('popstate', function() {
+            // Communicate URL change to embedded app via postMessage
+            if (iframe.contentWindow && iframe.contentWindow.postMessage) {
+                iframe.contentWindow.postMessage({
+                    type: 'popstate',
+                    url: window.location.href,
+                    path: window.location.pathname,
+                    search: window.location.search,
+                    hash: window.location.hash
+                }, '*');
+            }
+        });
+        
+        // Optional: Send initial context to iframe after load to sync state (avoids missing routing)
+        function sendInitialContext() {
+            try {
+                if (iframe.contentWindow && iframe.contentWindow.postMessage) {
+                    iframe.contentWindow.postMessage({
+                        type: 'init',
+                        url: window.location.href,
+                        search: window.location.search,
+                        hash: window.location.hash,
+                        timestamp: Date.now()
+                    }, '*');
+                }
+            } catch(e) {
+                // ignore cross-origin restrictions (silent)
+            }
+        }
+        
+        // Once iframe loads, also send initial context for better integration.
+        iframe.addEventListener('load', function() {
+            sendInitialContext();
+            // Additionally, if there's any 'loading' visual artifact from the child app itself, we keep as is.
+            // But wrapper loading screen is fully eliminated.
+            
+            // Also, try to sync document title with embedded app if it sends title message later
+            // but default title is already set to the required name
+        });
+        
+        // Immediately set iframe visible and no loading overlay whatsoever.
+        // Additionally, ensure that any unplanned flash of unstyled content is avoided.
+        iframe.style.opacity = '1';
+        iframe.style.display = 'block';
+        
+        // Log successful wrapper initialization (debug) with updated branding info
+        console.log('ARSC Phase 3 HOA – Pickleball Court Scheduler — loading screen removed. Iframe URL:', iframeUrl);
+        
+        // Robustness: if error occurs early (network offline), show error without loading screen
+        window.addEventListener('offline', function() {
+            if (!hasFailed && iframe.src !== 'about:blank' && (!iframe.contentWindow || iframe.contentWindow === null)) {
+                showError('Network connection lost. Please reconnect and refresh the page.');
+            }
+        });
+        
+        // Manual retry enhancement: if retry button doesn't refresh entire page but just iframe? optional.
+        // but default error button uses location.reload(), which is straightforward.
+        // Additional: clear any potential stuck error when coming online
+        window.addEventListener('online', function() {
+            if (errorMessage.classList.contains('show') && !hasFailed) {
+                // optionally auto reload if needed, but safer to keep manual retry
+                console.log('Connection restored. Reload manually if needed.');
+            }
+        });
+        
+        // Edge case: If user navigates with devtools and fast network, everything fine.
+        // Remove all traces of preloader from memory and dom — already none exist.
+        
+        // Also ensure no external image requests are made: removed link tags completely.
+        // Manually clean any leftover icon requests
+        const existingLinks = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+        existingLinks.forEach(link => link.remove());
+        
+        // Optional: set a simple data URL emoji favicon to avoid 404s (no external load)
+        const canvasFavicon = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#2d6a4f';
+                ctx.fillRect(0, 0, 64, 64);
+                ctx.font = '48px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('🏓', 32, 32);
+                const faviconUrl = canvas.toDataURL('image/png');
+                let faviconLink = document.querySelector('link[rel="icon"]');
+                if (!faviconLink) {
+                    faviconLink = document.createElement('link');
+                    faviconLink.rel = 'icon';
+                    document.head.appendChild(faviconLink);
+                }
+                faviconLink.href = faviconUrl;
+            } catch(e) {
+                // fallback: no favicon
+                console.log('Emoji favicon not supported');
+            }
+        };
+        canvasFavicon();
+    </script>
+</body>
+</html>
